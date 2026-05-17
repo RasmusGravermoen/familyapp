@@ -13,11 +13,11 @@
   --border:      #e0d9d0;
   --text:        #2c2825;
   --text-muted:  #8a7f74;
-  --accent:      #4a7c6f;     /* calm Nordic green */
+  --accent:      #4a7c6f;
   --accent-dark: #35645a;
-  --mom:         #c97b84;     /* dusty rose for Mom */
-  --dad:         #6b8fb5;     /* dusty blue for Dad */
-  --both:        #8a7fc0;     /* soft purple for Both */
+  --mom:         #c97b84;
+  --dad:         #6b8fb5;
+  --both:        #8a7fc0;
   --danger:      #b85c5c;
   --radius:      14px;
   --shadow:      0 2px 12px rgba(0,0,0,0.08);
@@ -33,7 +33,22 @@ body {
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
-  padding-bottom: 120px; /* space for FAB */
+  padding-bottom: 120px;
+  position: relative;
+}
+
+/* ---- Katte-bakgrunn ---- */
+body::before {
+  content: '';
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 55%;
+  background: url('katt.jpg') center bottom / cover no-repeat;
+  opacity: 0.13;
+  pointer-events: none;
+  z-index: 0;
 }
 
 /* ---- Header ---- */
@@ -66,7 +81,9 @@ body {
   display: flex;
   gap: 10px;
   padding: 16px 20px 8px;
-  background: var(--bg);
+  background: transparent;
+  position: relative;
+  z-index: 1;
 }
 .toggle-btn {
   flex: 1;
@@ -88,7 +105,7 @@ body {
 }
 
 /* ---- Views ---- */
-.view { display: none; padding: 0 16px; }
+.view { display: none; padding: 0 16px; position: relative; z-index: 1; }
 .view.active { display: block; }
 
 /* ---- Month Nav ---- */
@@ -474,6 +491,7 @@ body {
   font-family: var(--font-body);
   font-size: 1rem;
   background: var(--bg);
+  color: var(--bg);
   color: var(--text-muted);
   border: 2px solid var(--border);
   border-radius: var(--radius);
