@@ -6,8 +6,8 @@
    ============================================= */
 
 // ─── PASTE YOUR SUPABASE DETAILS HERE (later) ───────────────────────────────
-const SUPABASE_URL = '';   // e.g. 'https://vzaukvlnvpmzbvktnbaj.supabase.co'
-const SUPABASE_KEY = '';   // e.g. 'sb_publishable_37b8kQXZXBRZLgM4jdjUAg_miYSCbvs'
+const SUPABASE_URL = 'https://vzaukvlnvpmzbvktnbaj.supabase.co'
+const SUPABASE_KEY = 'sb_publishable_37b8kQXZXBRZLgM4jdjUAg_miYSCbvs'
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Detect if Supabase is configured
