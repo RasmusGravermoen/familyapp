@@ -1,9 +1,4 @@
-/* =============================================
-   sw.js — Service Worker (PWA)
-   Caches the app so it loads even with bad internet.
-   ============================================= */
-
-const CACHE = 'familycal-v5';
+const CACHE = 'familycal-v6';
 const ASSETS = [
   '/',
   '/index.html',
@@ -11,6 +6,7 @@ const ASSETS = [
   '/app.js',
   '/supabase.js',
   '/manifest.json',
+  '/katt.jpg',
 ];
 
 self.addEventListener('install', e => {
