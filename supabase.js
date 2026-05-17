@@ -7,7 +7,7 @@
 
 // ─── PASTE YOUR SUPABASE DETAILS HERE (later) ───────────────────────────────
 const SUPABASE_URL = 'https://vzaukvlnvpmzbvktnbaj.supabase.co'
-const SUPABASE_KEY = 'sb_publishable_37b8kQXZXBRZLgM4jdjUAg_miYSCbvs'
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6YXVrdmxudnBtemJ2a3RuYmFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5ODIxMDIsImV4cCI6MjA5NDU1ODEwMn0.oEsjKflQlNyJMsy4svMe8x6aiW6Ga23q_q9VjAt3nYw'
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Detect if Supabase is configured
