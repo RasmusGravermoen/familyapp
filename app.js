@@ -1,24 +1,42 @@
 /* =============================================
    app.js — Family Calendar Logic
-   Works in LOCAL mode now.
-   Switches to Supabase when credentials are added.
    ============================================= */
 
-// ─── STATE ────────────────────────────────────────────────────────────────────
 let currentDate  = new Date();
 let currentView  = 'month';
-let events       = [];          // all events in memory
-let editingId    = null;        // ID of event being edited (null = new event)
-let selectedWho  = null;        // 'mom', 'dad', or 'both'
+let events       = [];
+let editingId    = null;
+let selectedWho  = null;
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   updateMonthLabel();
-  await loadEvents();
   renderMonth();
   renderList();
   registerServiceWorker();
+
+  // Wait for Supabase to be ready, then load events
+  await waitForSupabase();
+  await loadEvents();
+  renderMonth();
+  renderList();
 });
+
+// Wait up to 3 seconds for Supabase client to initialize
+function waitForSupabase() {
+  return new Promise((resolve) => {
+    if (!window.SUPABASE_READY) return resolve();
+    if (window.supabaseClient) return resolve();
+    let tries = 0;
+    const interval = setInterval(() => {
+      tries++;
+      if (window.supabaseClient || tries > 30) {
+        clearInterval(interval);
+        resolve();
+      }
+    }, 100);
+  });
+}
 
 // ─── SERVICE WORKER (PWA) ─────────────────────────────────────────────────────
 function registerServiceWorker() {
@@ -27,7 +45,7 @@ function registerServiceWorker() {
   }
 }
 
-// ─── DATA LAYER — works locally OR with Supabase ─────────────────────────────
+// ─── DATA LAYER ───────────────────────────────────────────────────────────────
 
 async function loadEvents() {
   if (window.SUPABASE_READY && window.supabaseClient) {
@@ -35,16 +53,14 @@ async function loadEvents() {
       .from('events')
       .select('*')
       .order('date', { ascending: true });
-    if (!error) { events = data || []; return; }
+    if (!error && data) { events = data; return; }
   }
-  // Fallback: localStorage
   events = JSON.parse(localStorage.getItem('fam_events') || '[]');
 }
 
 async function saveToStorage(event) {
   if (window.SUPABASE_READY && window.supabaseClient) {
     if (event.id && typeof event.id === 'string' && event.id.startsWith('local-')) {
-      // It was a local event, insert as new
       const { id, ...rest } = event;
       const { data, error } = await window.supabaseClient.from('events').insert(rest).select().single();
       if (!error) return data;
@@ -53,7 +69,6 @@ async function saveToStorage(event) {
       .from('events').upsert(event).select().single();
     if (!error) return data;
   }
-  // Fallback: localStorage
   const stored = JSON.parse(localStorage.getItem('fam_events') || '[]');
   const idx = stored.findIndex(e => e.id === event.id);
   if (idx >= 0) stored[idx] = event; else stored.push(event);
@@ -96,7 +111,6 @@ function changeMonth(dir) {
 
 function renderMonth() {
   const grid = document.querySelector('.calendar-grid');
-  // Remove all day cells (keep the 7 header labels)
   const headers = grid.querySelectorAll('.day-label');
   grid.innerHTML = '';
   headers.forEach(h => grid.appendChild(h));
@@ -105,20 +119,17 @@ function renderMonth() {
   const month = currentDate.getMonth();
   const today = new Date();
 
-  // First day of month (Monday = 0)
-  let firstDay = new Date(year, month, 1).getDay(); // 0=Sun
-  firstDay = (firstDay === 0) ? 6 : firstDay - 1;  // convert to Mon=0
+  let firstDay = new Date(year, month, 1).getDay();
+  firstDay = (firstDay === 0) ? 6 : firstDay - 1;
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  // Empty cells before first day
   for (let i = 0; i < firstDay; i++) {
     const empty = document.createElement('div');
     empty.className = 'cal-day empty';
     grid.appendChild(empty);
   }
 
-  // Day cells
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = toDateStr(year, month, d);
     const dayEvents = events.filter(e => e.date === dateStr);
@@ -134,7 +145,6 @@ function renderMonth() {
     num.textContent = d;
     cell.appendChild(num);
 
-    // Dots for events
     dayEvents.forEach(ev => {
       const dot = document.createElement('span');
       dot.className = 'cal-dot dot-' + ev.who;
@@ -147,7 +157,6 @@ function renderMonth() {
 }
 
 function openDaySheet(dateStr, dayEvents) {
-  // Remove any existing day sheet
   const existing = document.getElementById('day-sheet');
   if (existing) existing.remove();
 
@@ -183,17 +192,10 @@ function openDaySheet(dateStr, dayEvents) {
       name.textContent = ev.title;
       info.appendChild(name);
 
-      if (ev.time) {
-        const meta = document.createElement('div');
-        meta.className = 'day-event-meta';
-        meta.textContent = formatTime(ev.time) + ' · ' + whoLabel(ev.who);
-        info.appendChild(meta);
-      } else {
-        const meta = document.createElement('div');
-        meta.className = 'day-event-meta';
-        meta.textContent = whoLabel(ev.who);
-        info.appendChild(meta);
-      }
+      const meta = document.createElement('div');
+      meta.className = 'day-event-meta';
+      meta.textContent = (ev.time ? formatTime(ev.time) + ' · ' : '') + whoLabel(ev.who);
+      info.appendChild(meta);
 
       item.appendChild(info);
       item.onclick = () => { overlay.remove(); openModal(ev); };
@@ -224,11 +226,7 @@ function renderList() {
   const container = document.getElementById('event-list');
   container.innerHTML = '';
 
-  const today = toDateStr(
-    new Date().getFullYear(),
-    new Date().getMonth(),
-    new Date().getDate()
-  );
+  const today = toDateStr(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
 
   const upcoming = events
     .filter(e => e.date >= today)
@@ -282,8 +280,8 @@ function renderList() {
 // ─── MODAL ────────────────────────────────────────────────────────────────────
 
 function openModal(event = null, prefillDate = null) {
-  editingId    = null;
-  selectedWho  = null;
+  editingId   = null;
+  selectedWho = null;
 
   document.getElementById('modal-title').textContent = event ? 'Rediger hendelse' : 'Ny hendelse';
   document.getElementById('event-title').value = event ? event.title : '';
@@ -291,16 +289,12 @@ function openModal(event = null, prefillDate = null) {
   document.getElementById('event-time').value  = event ? (event.time || '') : '';
   document.getElementById('event-note').value  = event ? (event.note || '') : '';
 
-  // Who selection
   ['mom','dad','both'].forEach(w => {
     document.getElementById('who-' + w).className = 'who-btn';
   });
-  if (event) {
-    selectWho(event.who);
-  }
+  if (event) selectWho(event.who);
 
   document.getElementById('btn-delete').classList.toggle('hidden', !event);
-
   if (event) editingId = event.id;
 
   document.getElementById('modal-overlay').classList.remove('hidden');
