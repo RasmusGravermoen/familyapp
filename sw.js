@@ -3,7 +3,7 @@
    Caches the app so it loads even with bad internet.
    ============================================= */
 
-const CACHE = 'familycal-v3';
+const CACHE = 'familycal-v4';
 const ASSETS = [
   '/',
   '/index.html',
