@@ -45,8 +45,8 @@ body::before {
   left: 0;
   right: 0;
   height: 55%;
-  background: url('katt.jpg') center center / cover no-repeat;
-  opacity: 0.5;
+  background: url('katt.jpg') center bottom / cover no-repeat;
+  opacity: 0.13;
   pointer-events: none;
   z-index: 0;
 }
