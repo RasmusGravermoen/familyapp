@@ -19,6 +19,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadEvents();
   renderMonth();
   renderList();
+
+  // Auto-oppdater hvert minutt
+  setInterval(async () => {
+    await loadEvents();
+    renderMonth();
+    renderList();
+  }, 60000);
 });
 
 function waitForSupabase() {
