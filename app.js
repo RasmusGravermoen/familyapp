@@ -2,11 +2,12 @@
    app.js — Family Calendar Logic
    ============================================= */
 
-let currentDate  = new Date();
-let currentView  = 'month';
-let events       = [];
-let editingId    = null;
-let selectedWho  = null;
+let currentDate   = new Date();
+let currentView   = 'month';
+let events        = [];
+let editingId     = null;
+let selectedWho   = null;
+let selectedVoiceWho = null;
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -14,15 +15,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderMonth();
   renderList();
   registerServiceWorker();
-
-  // Wait for Supabase to be ready, then load events
   await waitForSupabase();
   await loadEvents();
   renderMonth();
   renderList();
 });
 
-// Wait up to 3 seconds for Supabase client to initialize
 function waitForSupabase() {
   return new Promise((resolve) => {
     if (!window.SUPABASE_READY) return resolve();
@@ -38,7 +36,6 @@ function waitForSupabase() {
   });
 }
 
-// ─── SERVICE WORKER (PWA) ─────────────────────────────────────────────────────
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
@@ -50,9 +47,7 @@ function registerServiceWorker() {
 async function loadEvents() {
   if (window.SUPABASE_READY && window.supabaseClient) {
     const { data, error } = await window.supabaseClient
-      .from('events')
-      .select('*')
-      .order('date', { ascending: true });
+      .from('events').select('*').order('date', { ascending: true });
     if (!error && data) { events = data; return; }
   }
   events = JSON.parse(localStorage.getItem('fam_events') || '[]');
@@ -82,6 +77,100 @@ async function deleteFromStorage(id) {
   }
   const stored = JSON.parse(localStorage.getItem('fam_events') || '[]');
   localStorage.setItem('fam_events', JSON.stringify(stored.filter(e => e.id !== id)));
+}
+
+// ─── VOICE INPUT ──────────────────────────────────────────────────────────────
+
+function openVoiceModal() {
+  selectedVoiceWho = null;
+  document.getElementById('voice-input').value = '';
+  document.getElementById('voice-status').classList.add('hidden');
+  document.getElementById('voice-status').textContent = '';
+  ['mom','dad','both'].forEach(w => {
+    document.getElementById('voice-who-' + w).className = 'who-btn';
+  });
+  document.getElementById('voice-modal-overlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('voice-input').focus(), 300);
+}
+
+function closeVoiceModal() {
+  document.getElementById('voice-modal-overlay').classList.add('hidden');
+  selectedVoiceWho = null;
+}
+
+function handleVoiceOverlayClick(e) {
+  if (e.target === document.getElementById('voice-modal-overlay')) closeVoiceModal();
+}
+
+function selectVoiceWho(who) {
+  selectedVoiceWho = who;
+  ['mom','dad','both'].forEach(w => {
+    const btn = document.getElementById('voice-who-' + w);
+    btn.className = 'who-btn' + (w === who ? ' selected-' + w : '');
+  });
+}
+
+async function processVoiceInput() {
+  const input = document.getElementById('voice-input').value.trim();
+  if (!input) { showToast('Skriv eller dikter en hendelse først 🎤'); return; }
+  if (!selectedVoiceWho) { showToast('Velg hvem hendelsen gjelder 👇'); return; }
+
+  const statusEl = document.getElementById('voice-status');
+  statusEl.textContent = '✨ Tolker hendelsen...';
+  statusEl.classList.remove('hidden');
+
+  const today = new Date();
+  const todayFormatted = today.getFullYear() + '-' +
+    String(today.getMonth()+1).padStart(2,'0') + '-' +
+    String(today.getDate()).padStart(2,'0');
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 200,
+        system: `Du er en kalenderassistent. Dagens dato er ${todayFormatted}.
+Brukeren beskriver en kalenderhendelse på norsk. Ekstraher informasjonen og returner KUN et JSON-objekt uten noe annet tekst:
+{"title": "kort beskrivelse av hendelsen", "date": "YYYY-MM-DD", "time": "HH:MM eller null", "note": "ekstra info eller null"}
+Regler:
+- title skal være kort og beskrivende, maks 6 ord
+- Hvis ingen årstall er nevnt, bruk inneværende eller neste år logisk
+- Hvis ingen tid er nevnt, sett time til null
+- Returner BARE JSON, ingen annen tekst`,
+        messages: [{ role: 'user', content: input }]
+      })
+    });
+
+    const data = await response.json();
+    const text = data.content?.[0]?.text || '';
+
+    let parsed;
+    try {
+      parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
+    } catch {
+      throw new Error('Kunne ikke tolke svaret');
+    }
+
+    // Close voice modal and open edit modal with prefilled data
+    closeVoiceModal();
+
+    // Small delay so modal animation looks smooth
+    setTimeout(() => {
+      openModal(null, parsed.date);
+      document.getElementById('event-title').value = parsed.title || '';
+      document.getElementById('event-date').value  = parsed.date  || todayFormatted;
+      document.getElementById('event-time').value  = parsed.time  || '';
+      document.getElementById('event-note').value  = parsed.note  || '';
+      selectWho(selectedVoiceWho);
+      showToast('✨ Hendelse tolket! Sjekk og lagre.');
+    }, 200);
+
+  } catch (err) {
+    statusEl.textContent = '❌ Noe gikk galt. Prøv igjen eller legg inn manuelt.';
+    console.error(err);
+  }
 }
 
 // ─── VIEWS ────────────────────────────────────────────────────────────────────
@@ -227,7 +316,6 @@ function renderList() {
   container.innerHTML = '';
 
   const today = toDateStr(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
-
   const upcoming = events
     .filter(e => e.date >= today)
     .sort((a, b) => (a.date + (a.time||'')) > (b.date + (b.time||'')) ? 1 : -1);
@@ -237,7 +325,7 @@ function renderList() {
       <div class="no-events">
         <p style="font-size:2.5rem;margin-bottom:12px;">🗓</p>
         <p>Ingen kommende hendelser.</p>
-        <p style="margin-top:8px;">Trykk på <strong>＋ Legg til</strong> for å legge til noe!</p>
+        <p style="margin-top:8px;">Trykk på <strong>🎤 Si en hendelse</strong> eller <strong>＋ Legg til</strong>!</p>
       </div>`;
     return;
   }
@@ -364,9 +452,7 @@ async function deleteEvent() {
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 function toDateStr(year, month, day) {
-  return year + '-' +
-    String(month + 1).padStart(2, '0') + '-' +
-    String(day).padStart(2, '0');
+  return year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
 }
 
 function todayStr() {
