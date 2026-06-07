@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="no">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
@@ -13,19 +13,16 @@
 </head>
 <body>
 
-  <!-- ===== HEADER ===== -->
   <header class="app-header">
     <h1 class="app-title">📅 Familiekalender</h1>
     <p class="app-subtitle" id="current-month-label"></p>
   </header>
 
-  <!-- ===== VIEW TOGGLE ===== -->
   <div class="view-toggle">
     <button class="toggle-btn active" id="btn-month" onclick="switchView('month')">Måned</button>
     <button class="toggle-btn" id="btn-list" onclick="switchView('list')">Liste</button>
   </div>
 
-  <!-- ===== MONTH VIEW ===== -->
   <section id="view-month" class="view active">
     <div class="month-nav">
       <button class="nav-btn" onclick="changeMonth(-1)">&#8592; Forrige</button>
@@ -42,36 +39,33 @@
     </div>
   </section>
 
-  <!-- ===== LIST VIEW ===== -->
   <section id="view-list" class="view">
     <h2 class="list-heading">Kommende hendelser</h2>
     <div id="event-list"></div>
   </section>
 
-  <!-- ===== BUTTONS ===== -->
   <div class="fab-container">
     <button class="fab-voice" onclick="openVoiceModal()">🎤 Si en hendelse</button>
     <button class="fab" onclick="openModal()">＋ Legg til manuelt</button>
   </div>
 
-  <!-- ===== VOICE MODAL ===== -->
+  <!-- VOICE MODAL -->
   <div id="voice-modal-overlay" class="modal-overlay hidden" onclick="handleVoiceOverlayClick(event)">
     <div class="modal">
       <h2 class="modal-title">🎤 Si en hendelse</h2>
-      <p class="voice-hint">Skriv eller dikter en hendelse med Wispr Flow, så fyller appen inn resten automatisk!</p>
-      <p class="voice-example">Eksempel: <em>"13 juni kl 12 kommer farfar på besøk"</em></p>
 
-      <label class="field-label" for="voice-input">Hva skjer?</label>
+      <p class="voice-example">Si f.eks: <em>"13 juni kl 12 kommer farfar på besøk"</em></p>
+
       <textarea
         id="voice-input"
         class="field-input field-textarea voice-textarea"
-        placeholder="Skriv eller dikter her... f.eks. 'Lørdag 21 juni kl 14 er det bursdag hos naboen'"
+        placeholder="Dikter eller skriv her..."
         rows="3"
         inputmode="text"
         autocomplete="off"
       ></textarea>
 
-      <div class="voice-who-label field-label">Hvem gjelder det?</div>
+      <div class="field-label" style="margin-top:18px;">Hvem gjelder det?</div>
       <div class="who-buttons">
         <button class="who-btn" id="voice-who-mom" onclick="selectVoiceWho('mom')">👩 Mor</button>
         <button class="who-btn" id="voice-who-dad" onclick="selectVoiceWho('dad')">👨 Far</button>
@@ -87,20 +81,14 @@
     </div>
   </div>
 
-  <!-- ===== ADD/EDIT MODAL ===== -->
+  <!-- ADD/EDIT MODAL -->
   <div id="modal-overlay" class="modal-overlay hidden" onclick="handleOverlayClick(event)">
     <div class="modal">
       <h2 class="modal-title" id="modal-title">Ny hendelse</h2>
 
       <label class="field-label" for="event-title">Hva skjer?</label>
-      <input
-        type="text"
-        id="event-title"
-        class="field-input"
-        placeholder="t.d. Legetimebestilling..."
-        autocomplete="off"
-        inputmode="text"
-      />
+      <input type="text" id="event-title" class="field-input"
+        placeholder="t.d. Legetimebestilling..." autocomplete="off" inputmode="text" />
 
       <label class="field-label" for="event-date">Dato</label>
       <input type="date" id="event-date" class="field-input" />
@@ -116,12 +104,8 @@
       </div>
 
       <label class="field-label" for="event-note">Notat (valgfritt)</label>
-      <textarea
-        id="event-note"
-        class="field-input field-textarea"
-        placeholder="Ekstra informasjon..."
-        rows="2"
-      ></textarea>
+      <textarea id="event-note" class="field-input field-textarea"
+        placeholder="Ekstra informasjon..." rows="2"></textarea>
 
       <div class="modal-actions">
         <button class="btn-save" onclick="saveEvent()">💾 Lagre</button>
@@ -131,7 +115,6 @@
     </div>
   </div>
 
-  <!-- ===== TOAST ===== -->
   <div id="toast" class="toast hidden"></div>
 
   <script src="supabase.js"></script>
