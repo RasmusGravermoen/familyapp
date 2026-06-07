@@ -1,4 +1,4 @@
-const CACHE = 'familycal-v9';
+const CACHE = 'familycal-v10';
 const ASSETS = [
   '/',
   '/index.html',
