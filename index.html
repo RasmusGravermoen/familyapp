@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <meta name="theme-color" content="#f5f0eb" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Familiekalender" />
   <title>Familiekalender</title>
@@ -39,24 +39,55 @@
       <div class="day-label">Fre</div>
       <div class="day-label">Lør</div>
       <div class="day-label">Søn</div>
-      <!-- Days inserted by JS -->
     </div>
   </section>
 
   <!-- ===== LIST VIEW ===== -->
   <section id="view-list" class="view">
     <h2 class="list-heading">Kommende hendelser</h2>
-    <div id="event-list">
-      <!-- Events inserted by JS -->
-    </div>
+    <div id="event-list"></div>
   </section>
 
-  <!-- ===== ADD EVENT BUTTON ===== -->
+  <!-- ===== BUTTONS ===== -->
   <div class="fab-container">
-    <button class="fab" onclick="openModal()">＋ Legg til</button>
+    <button class="fab-voice" onclick="openVoiceModal()">🎤 Si en hendelse</button>
+    <button class="fab" onclick="openModal()">＋ Legg til manuelt</button>
   </div>
 
-  <!-- ===== MODAL: Add / Edit Event ===== -->
+  <!-- ===== VOICE MODAL ===== -->
+  <div id="voice-modal-overlay" class="modal-overlay hidden" onclick="handleVoiceOverlayClick(event)">
+    <div class="modal">
+      <h2 class="modal-title">🎤 Si en hendelse</h2>
+      <p class="voice-hint">Skriv eller dikter en hendelse med Wispr Flow, så fyller appen inn resten automatisk!</p>
+      <p class="voice-example">Eksempel: <em>"13 juni kl 12 kommer farfar på besøk"</em></p>
+
+      <label class="field-label" for="voice-input">Hva skjer?</label>
+      <textarea
+        id="voice-input"
+        class="field-input field-textarea voice-textarea"
+        placeholder="Skriv eller dikter her... f.eks. 'Lørdag 21 juni kl 14 er det bursdag hos naboen'"
+        rows="3"
+        inputmode="text"
+        autocomplete="off"
+      ></textarea>
+
+      <div class="voice-who-label field-label">Hvem gjelder det?</div>
+      <div class="who-buttons">
+        <button class="who-btn" id="voice-who-mom" onclick="selectVoiceWho('mom')">👩 Mor</button>
+        <button class="who-btn" id="voice-who-dad" onclick="selectVoiceWho('dad')">👨 Far</button>
+        <button class="who-btn" id="voice-who-both" onclick="selectVoiceWho('both')">👨‍👩‍ Begge</button>
+      </div>
+
+      <div id="voice-status" class="voice-status hidden"></div>
+
+      <div class="modal-actions">
+        <button class="btn-save" onclick="processVoiceInput()">✨ Fyll inn automatisk</button>
+        <button class="btn-cancel" onclick="closeVoiceModal()">Avbryt</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ADD/EDIT MODAL ===== -->
   <div id="modal-overlay" class="modal-overlay hidden" onclick="handleOverlayClick(event)">
     <div class="modal">
       <h2 class="modal-title" id="modal-title">Ny hendelse</h2>
@@ -72,18 +103,10 @@
       />
 
       <label class="field-label" for="event-date">Dato</label>
-      <input
-        type="date"
-        id="event-date"
-        class="field-input"
-      />
+      <input type="date" id="event-date" class="field-input" />
 
       <label class="field-label" for="event-time">Tid (valgfritt)</label>
-      <input
-        type="time"
-        id="event-time"
-        class="field-input"
-      />
+      <input type="time" id="event-time" class="field-input" />
 
       <label class="field-label">Hvem?</label>
       <div class="who-buttons">
@@ -108,7 +131,7 @@
     </div>
   </div>
 
-  <!-- ===== TOAST NOTIFICATION ===== -->
+  <!-- ===== TOAST ===== -->
   <div id="toast" class="toast hidden"></div>
 
   <script src="supabase.js"></script>
