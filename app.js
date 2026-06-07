@@ -28,10 +28,7 @@ function waitForSupabase() {
     let tries = 0;
     const interval = setInterval(() => {
       tries++;
-      if (window.supabaseClient || tries > 30) {
-        clearInterval(interval);
-        resolve();
-      }
+      if (window.supabaseClient || tries > 30) { clearInterval(interval); resolve(); }
     }, 100);
   });
 }
@@ -79,6 +76,136 @@ async function deleteFromStorage(id) {
   localStorage.setItem('fam_events', JSON.stringify(stored.filter(e => e.id !== id)));
 }
 
+// ─── SMART TEXT PARSER ────────────────────────────────────────────────────────
+
+const MONTHS = {
+  'januar':1,'februar':2,'mars':3,'april':4,'mai':5,'juni':6,
+  'juli':7,'august':8,'september':9,'oktober':10,'november':11,'desember':12,
+  'jan':1,'feb':2,'mar':3,'apr':4,'jun':6,'jul':7,'aug':8,'sep':9,'okt':10,'nov':11,'des':12
+};
+
+const DAY_WORDS = {
+  'en':1,'ett':1,'første':1,
+  'to':2,'andre':2,'annen':2,
+  'tre':3,'tredje':3,'trettende':13,
+  'fire':4,'fjerde':4,'fjortende':14,
+  'fem':5,'femte':5,'femtende':15,
+  'seks':6,'sjette':6,'sekstende':16,
+  'sju':7,'syv':7,'syvende':7,'syttende':17,
+  'åtte':8,'åttende':8,'attende':18,
+  'ni':9,'niende':9,'nittende':19,
+  'ti':10,'tiende':10,'tjuende':20,
+  'elleve':11,'ellevte':11,'tjueførste':21,'tjueen':21,
+  'tolv':12,'tolvte':12,'tjueandre':22,'tjueto':22,
+  'tretten':13,'trettende':13,'tjuetredje':23,'tjuetre':23,
+  'fjorten':14,'fjortende':14,'tjuefjerde':24,'tjuefire':24,
+  'femten':15,'femtende':15,'tjuefemte':25,'tjuefem':25,
+  'seksten':16,'sekstende':16,'tjuesjette':26,'tjueseks':26,
+  'sytten':17,'syttende':17,'tjuesyvende':27,'tjuesju':27,'tjuesyv':27,
+  'atten':18,'attende':18,'tjueåttende':28,'tjueåtte':28,
+  'nitten':19,'nittende':19,'tjueniende':29,'tjueni':29,
+  'tjue':20,'tjuende':20,'tretti':30,'trettiende':30,'tredve':30,
+  'trettien':31,'trettiende':31,'enogtredve':31
+};
+
+const TIME_WORDS = {
+  'null':0,'ett':1,'to':2,'tre':3,'fire':4,'fem':5,'seks':6,
+  'sju':7,'syv':7,'åtte':8,'ni':9,'ti':10,'elleve':11,'tolv':12,
+  'tretten':13,'fjorten':14,'femten':15,'seksten':16,'sytten':17,
+  'atten':18,'nitten':19,'tjue':20,'tjueen':21,'tjueto':22,
+  'tjuetre':23
+};
+
+function parseNorwegianText(text) {
+  const lower = text.toLowerCase().trim();
+  let day = null, month = null, year = null, hour = null, minute = 0, title = null;
+
+  const today = new Date();
+
+  // ── Finn dag (tall eller ord) ──
+  // Prøv ordenstall med punktum: "13." eller "trettende"
+  const dayNumMatch = lower.match(/\b(\d{1,2})\s*\.?\s*(januar|februar|mars|april|mai|juni|juli|august|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|aug|sep|okt|nov|des)/);
+  if (dayNumMatch) {
+    day = parseInt(dayNumMatch[1]);
+    month = MONTHS[dayNumMatch[2]];
+  }
+
+  // Prøv ord-dag + måned: "trettende juni"
+  if (!day) {
+    for (const [word, num] of Object.entries(DAY_WORDS)) {
+      const re = new RegExp('\\b' + word + '\\s+(januar|februar|mars|april|mai|juni|juli|august|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|aug|sep|okt|nov|des)\\b');
+      const m = lower.match(re);
+      if (m) { day = num; month = MONTHS[m[1]]; break; }
+    }
+  }
+
+  // ── Finn år ──
+  const yearMatch = lower.match(/\b(202[4-9]|203\d)\b/);
+  if (yearMatch) year = parseInt(yearMatch[1]);
+  if (!year) {
+    year = today.getFullYear();
+    // Hvis måneden allerede er passert i år, bruk neste år
+    if (month && month < today.getMonth() + 1) year++;
+    if (month && month === today.getMonth() + 1 && day && day < today.getDate()) year++;
+  }
+
+  // ── Finn tid ──
+  // "kl 12", "kl. 12", "klokka 12", "klokken 12:30", "12:00"
+  const timeNumMatch = lower.match(/(?:kl\.?\s*|klokk[ae]?\s*)(\d{1,2})(?::(\d{2}))?/);
+  if (timeNumMatch) {
+    hour = parseInt(timeNumMatch[1]);
+    minute = timeNumMatch[2] ? parseInt(timeNumMatch[2]) : 0;
+  }
+
+  // Prøv "klokka tolv", "klokken fem"
+  if (hour === null) {
+    const timeWordMatch = lower.match(/(?:kl\.?\s*|klokk[ae]?\s*)(null|ett|to|tre|fire|fem|seks|sju|syv|åtte|ni|ti|elleve|tolv|tretten|fjorten|femten|seksten|sytten|atten|nitten|tjue|tjueen|tjueto|tjuetre)/);
+    if (timeWordMatch && TIME_WORDS[timeWordMatch[1]] !== undefined) {
+      hour = TIME_WORDS[timeWordMatch[1]];
+    }
+  }
+
+  // ── Finn tittel ──
+  // Fjern dato og klokkeslett fra teksten, resten er tittelen
+  let titleText = text;
+
+  // Fjern dato-delen
+  titleText = titleText.replace(/\b\d{1,2}\s*\.?\s*(januar|februar|mars|april|mai|juni|juli|august|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|aug|sep|okt|nov|des)\b/gi, '');
+  for (const word of Object.keys(DAY_WORDS)) {
+    const re = new RegExp('\\b' + word + '\\s+(januar|februar|mars|april|mai|juni|juli|august|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|aug|sep|okt|nov|des)\\b', 'gi');
+    titleText = titleText.replace(re, '');
+  }
+
+  // Fjern klokkeslett-delen
+  titleText = titleText.replace(/(?:kl\.?\s*|klokk[ae]?\s*)\d{1,2}(?::\d{2})?/gi, '');
+  titleText = titleText.replace(/(?:kl\.?\s*|klokk[ae]?\s*)(null|ett|to|tre|fire|fem|seks|sju|syv|åtte|ni|ti|elleve|tolv|tretten|fjorten|femten|seksten|sytten|atten|nitten|tjue|tjueen|tjueto|tjuetre)/gi, '');
+
+  // Fjern årstall
+  titleText = titleText.replace(/\b(202[4-9]|203\d)\b/g, '');
+
+  // Rydd opp
+  titleText = titleText.replace(/\s+/g, ' ').trim();
+  titleText = titleText.replace(/^[,.\s]+|[,.\s]+$/g, '').trim();
+
+  // Stor forbokstav
+  if (titleText) {
+    title = titleText.charAt(0).toUpperCase() + titleText.slice(1);
+  }
+
+  // ── Bygg resultat ──
+  let dateStr = null;
+  if (day && month && year) {
+    dateStr = year + '-' + String(month).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+  }
+
+  let timeStr = null;
+  if (hour !== null) {
+    timeStr = String(hour).padStart(2,'0') + ':' + String(minute).padStart(2,'0');
+  }
+
+  return { date: dateStr, time: timeStr, title: title || text };
+}
+
 // ─── VOICE INPUT ──────────────────────────────────────────────────────────────
 
 function openVoiceModal() {
@@ -110,7 +237,7 @@ function selectVoiceWho(who) {
   });
 }
 
-async function processVoiceInput() {
+function processVoiceInput() {
   const input = document.getElementById('voice-input').value.trim();
   if (!input) { showToast('Skriv eller dikter en hendelse først 🎤'); return; }
   if (!selectedVoiceWho) { showToast('Velg hvem hendelsen gjelder 👇'); return; }
@@ -119,58 +246,22 @@ async function processVoiceInput() {
   statusEl.textContent = '✨ Tolker hendelsen...';
   statusEl.classList.remove('hidden');
 
+  const parsed = parseNorwegianText(input);
+
   const today = new Date();
-  const todayFormatted = today.getFullYear() + '-' +
-    String(today.getMonth()+1).padStart(2,'0') + '-' +
-    String(today.getDate()).padStart(2,'0');
+  const todayStr = toDateStr(today.getFullYear(), today.getMonth(), today.getDate());
 
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 200,
-        system: `Du er en kalenderassistent. Dagens dato er ${todayFormatted}.
-Brukeren beskriver en kalenderhendelse på norsk. Ekstraher informasjonen og returner KUN et JSON-objekt uten noe annet tekst:
-{"title": "kort beskrivelse av hendelsen", "date": "YYYY-MM-DD", "time": "HH:MM eller null", "note": "ekstra info eller null"}
-Regler:
-- title skal være kort og beskrivende, maks 6 ord
-- Hvis ingen årstall er nevnt, bruk inneværende eller neste år logisk
-- Hvis ingen tid er nevnt, sett time til null
-- Returner BARE JSON, ingen annen tekst`,
-        messages: [{ role: 'user', content: input }]
-      })
-    });
+  closeVoiceModal();
 
-    const data = await response.json();
-    const text = data.content?.[0]?.text || '';
-
-    let parsed;
-    try {
-      parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
-    } catch {
-      throw new Error('Kunne ikke tolke svaret');
-    }
-
-    // Close voice modal and open edit modal with prefilled data
-    closeVoiceModal();
-
-    // Small delay so modal animation looks smooth
-    setTimeout(() => {
-      openModal(null, parsed.date);
-      document.getElementById('event-title').value = parsed.title || '';
-      document.getElementById('event-date').value  = parsed.date  || todayFormatted;
-      document.getElementById('event-time').value  = parsed.time  || '';
-      document.getElementById('event-note').value  = parsed.note  || '';
-      selectWho(selectedVoiceWho);
-      showToast('✨ Hendelse tolket! Sjekk og lagre.');
-    }, 200);
-
-  } catch (err) {
-    statusEl.textContent = '❌ Noe gikk galt. Prøv igjen eller legg inn manuelt.';
-    console.error(err);
-  }
+  setTimeout(() => {
+    openModal(null, parsed.date || todayStr);
+    document.getElementById('event-title').value = parsed.title || '';
+    document.getElementById('event-date').value  = parsed.date  || todayStr;
+    document.getElementById('event-time').value  = parsed.time  || '';
+    document.getElementById('event-note').value  = '';
+    selectWho(selectedVoiceWho);
+    showToast('✨ Sjekk og lagre hendelsen!');
+  }, 200);
 }
 
 // ─── VIEWS ────────────────────────────────────────────────────────────────────
@@ -210,7 +301,6 @@ function renderMonth() {
 
   let firstDay = new Date(year, month, 1).getDay();
   firstDay = (firstDay === 0) ? 6 : firstDay - 1;
-
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   for (let i = 0; i < firstDay; i++) {
@@ -270,22 +360,18 @@ function openDaySheet(dateStr, dayEvents) {
     dayEvents.forEach(ev => {
       const item = document.createElement('div');
       item.className = 'day-event-item';
-
       const dot = document.createElement('span');
       dot.className = 'day-event-dot dot-' + ev.who;
       item.appendChild(dot);
-
       const info = document.createElement('div');
       const name = document.createElement('div');
       name.className = 'day-event-name';
       name.textContent = ev.title;
       info.appendChild(name);
-
       const meta = document.createElement('div');
       meta.className = 'day-event-meta';
       meta.textContent = (ev.time ? formatTime(ev.time) + ' · ' : '') + whoLabel(ev.who);
       info.appendChild(meta);
-
       item.appendChild(info);
       item.onclick = () => { overlay.remove(); openModal(ev); };
       modal.appendChild(item);
@@ -314,7 +400,6 @@ function openDaySheet(dateStr, dayEvents) {
 function renderList() {
   const container = document.getElementById('event-list');
   container.innerHTML = '';
-
   const today = toDateStr(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
   const upcoming = events
     .filter(e => e.date >= today)
@@ -325,7 +410,7 @@ function renderList() {
       <div class="no-events">
         <p style="font-size:2.5rem;margin-bottom:12px;">🗓</p>
         <p>Ingen kommende hendelser.</p>
-        <p style="margin-top:8px;">Trykk på <strong>🎤 Si en hendelse</strong> eller <strong>＋ Legg til</strong>!</p>
+        <p style="margin-top:8px;">Trykk på <strong>🎤 Si en hendelse</strong> for å legge til!</p>
       </div>`;
     return;
   }
@@ -334,32 +419,26 @@ function renderList() {
     const card = document.createElement('div');
     card.className = 'event-card';
     card.onclick = () => openModal(ev);
-
     const bar = document.createElement('div');
     bar.className = 'event-color-bar bar-' + ev.who;
     card.appendChild(bar);
-
     const body = document.createElement('div');
     body.className = 'event-card-body';
-
     const titleEl = document.createElement('div');
     titleEl.className = 'event-card-title';
     titleEl.textContent = ev.title;
     body.appendChild(titleEl);
-
     const meta = document.createElement('div');
     meta.className = 'event-card-meta';
     const timeStr = ev.time ? ' kl. ' + formatTime(ev.time) : '';
     meta.textContent = formatDateNorwegian(ev.date) + timeStr + '  ·  ' + whoLabel(ev.who);
     body.appendChild(meta);
-
     if (ev.note) {
       const note = document.createElement('div');
       note.className = 'event-card-note';
       note.textContent = ev.note;
       body.appendChild(note);
     }
-
     card.appendChild(body);
     container.appendChild(card);
   });
@@ -370,21 +449,17 @@ function renderList() {
 function openModal(event = null, prefillDate = null) {
   editingId   = null;
   selectedWho = null;
-
   document.getElementById('modal-title').textContent = event ? 'Rediger hendelse' : 'Ny hendelse';
   document.getElementById('event-title').value = event ? event.title : '';
   document.getElementById('event-date').value  = event ? event.date  : (prefillDate || todayStr());
   document.getElementById('event-time').value  = event ? (event.time || '') : '';
   document.getElementById('event-note').value  = event ? (event.note || '') : '';
-
   ['mom','dad','both'].forEach(w => {
     document.getElementById('who-' + w).className = 'who-btn';
   });
   if (event) selectWho(event.who);
-
   document.getElementById('btn-delete').classList.toggle('hidden', !event);
   if (event) editingId = event.id;
-
   document.getElementById('modal-overlay').classList.remove('hidden');
   setTimeout(() => document.getElementById('event-title').focus(), 300);
 }
@@ -412,26 +487,21 @@ async function saveEvent() {
   const date  = document.getElementById('event-date').value;
   const time  = document.getElementById('event-time').value;
   const note  = document.getElementById('event-note').value.trim();
-
   if (!title) { showToast('Skriv inn hva som skjer 📝'); return; }
   if (!date)  { showToast('Velg en dato 📅'); return; }
   if (!selectedWho) { showToast('Velg hvem hendelsen gjelder 👇'); return; }
-
   const event = {
     id:    editingId || 'local-' + Date.now(),
-    title,
-    date,
+    title, date,
     time:  time || null,
     who:   selectedWho,
     note:  note || null,
   };
-
   const saved = await saveToStorage(event);
   if (saved) {
     const idx = events.findIndex(e => e.id === event.id);
     if (idx >= 0) events[idx] = saved; else events.push(saved);
   }
-
   closeModal();
   renderMonth();
   renderList();
