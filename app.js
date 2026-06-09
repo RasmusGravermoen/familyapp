@@ -2,21 +2,21 @@
    app.js — Family Calendar Logic
    ============================================= */
 
-let currentDate   = new Date();
-let currentView   = 'month';
-let events        = [];
-let editingId     = null;
-let selectedWho   = null;
+let currentDate      = new Date();
+let currentView      = 'month';
+let events           = [];
+let editingId        = null;
+let selectedWho      = null;
 let selectedVoiceWho = null;
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   updateMonthLabel();
-  renderMonth();
-  renderList();
+  showLoading(true);
   registerServiceWorker();
   await waitForSupabase();
   await loadEvents();
+  showLoading(false);
   renderMonth();
   renderList();
 
@@ -27,6 +27,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderList();
   }, 60000);
 });
+
+function showLoading(on) {
+  let el = document.getElementById('loading-overlay');
+  if (on) {
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'loading-overlay';
+      el.style.cssText = `
+        position: fixed; inset: 0; background: var(--bg);
+        display: flex; align-items: center; justify-content: center;
+        z-index: 999; flex-direction: column; gap: 16px;
+      `;
+      el.innerHTML = `
+        <div style="font-size:2.5rem;">📅</div>
+        <div style="font-size:1.1rem; color: var(--text-muted); font-family: var(--font-body);">Laster kalender...</div>
+      `;
+      document.body.appendChild(el);
+    }
+  } else {
+    if (el) el.remove();
+  }
+}
 
 function waitForSupabase() {
   return new Promise((resolve) => {
@@ -50,9 +72,16 @@ function registerServiceWorker() {
 
 async function loadEvents() {
   if (window.SUPABASE_READY && window.supabaseClient) {
-    const { data, error } = await window.supabaseClient
-      .from('events').select('*').order('date', { ascending: true });
-    if (!error && data) { events = data; return; }
+    try {
+      const { data, error } = await window.supabaseClient
+        .from('events').select('*').order('date', { ascending: true });
+      if (!error && data) {
+        events = data;
+        return;
+      }
+    } catch(e) {
+      console.error('Supabase feil:', e);
+    }
   }
   events = JSON.parse(localStorage.getItem('fam_events') || '[]');
 }
@@ -83,7 +112,7 @@ async function deleteFromStorage(id) {
   localStorage.setItem('fam_events', JSON.stringify(stored.filter(e => e.id !== id)));
 }
 
-// ─── SMART TEXT PARSER ────────────────────────────────────────────────────────
+// ─── NORSK TEKSTPARSER ────────────────────────────────────────────────────────
 
 const MONTHS = {
   'januar':1,'februar':2,'mars':3,'april':4,'mai':5,'juni':6,
@@ -92,52 +121,35 @@ const MONTHS = {
 };
 
 const DAY_WORDS = {
-  'en':1,'ett':1,'første':1,
-  'to':2,'andre':2,'annen':2,
-  'tre':3,'tredje':3,'trettende':13,
-  'fire':4,'fjerde':4,'fjortende':14,
-  'fem':5,'femte':5,'femtende':15,
-  'seks':6,'sjette':6,'sekstende':16,
-  'sju':7,'syv':7,'syvende':7,'syttende':17,
-  'åtte':8,'åttende':8,'attende':18,
-  'ni':9,'niende':9,'nittende':19,
-  'ti':10,'tiende':10,'tjuende':20,
-  'elleve':11,'ellevte':11,'tjueførste':21,'tjueen':21,
-  'tolv':12,'tolvte':12,'tjueandre':22,'tjueto':22,
-  'tretten':13,'trettende':13,'tjuetredje':23,'tjuetre':23,
-  'fjorten':14,'fjortende':14,'tjuefjerde':24,'tjuefire':24,
-  'femten':15,'femtende':15,'tjuefemte':25,'tjuefem':25,
-  'seksten':16,'sekstende':16,'tjuesjette':26,'tjueseks':26,
-  'sytten':17,'syttende':17,'tjuesyvende':27,'tjuesju':27,'tjuesyv':27,
-  'atten':18,'attende':18,'tjueåttende':28,'tjueåtte':28,
-  'nitten':19,'nittende':19,'tjueniende':29,'tjueni':29,
-  'tjue':20,'tjuende':20,'tretti':30,'trettiende':30,'tredve':30,
-  'trettien':31,'trettiende':31,'enogtredve':31
+  'første':1,'andre':2,'tredje':3,'fjerde':4,'femte':5,'sjette':6,
+  'syvende':7,'åttende':8,'niende':9,'tiende':10,'ellevte':11,'tolvte':12,
+  'trettende':13,'fjortende':14,'femtende':15,'sekstende':16,'syttende':17,
+  'attende':18,'nittende':19,'tjuende':20,'tjueførste':21,'tjueandre':22,
+  'tjuetredje':23,'tjuefjerde':24,'tjuefemte':25,'tjuesjette':26,
+  'tjuesyvende':27,'tjueåttende':28,'tjueniende':29,'trettiende':30,'enogtrettiende':31
 };
 
 const TIME_WORDS = {
-  'null':0,'ett':1,'to':2,'tre':3,'fire':4,'fem':5,'seks':6,
-  'sju':7,'syv':7,'åtte':8,'ni':9,'ti':10,'elleve':11,'tolv':12,
-  'tretten':13,'fjorten':14,'femten':15,'seksten':16,'sytten':17,
-  'atten':18,'nitten':19,'tjue':20,'tjueen':21,'tjueto':22,
-  'tjuetre':23
+  'ett':1,'to':2,'tre':3,'fire':4,'fem':5,'seks':6,'sju':7,'syv':7,
+  'åtte':8,'ni':9,'ti':10,'elleve':11,'tolv':12,'tretten':13,'fjorten':14,
+  'femten':15,'seksten':16,'sytten':17,'atten':18,'nitten':19,'tjue':20,
+  'tjueen':21,'tjueto':22,'tjuetre':23
 };
 
 function parseNorwegianText(text) {
   const lower = text.toLowerCase().trim();
-  let day = null, month = null, year = null, hour = null, minute = 0, title = null;
+  let day = null, month = null, year = null, hour = null, minute = 0;
 
   const today = new Date();
 
-  // ── Finn dag (tall eller ord) ──
-  // Prøv ordenstall med punktum: "13." eller "trettende"
-  const dayNumMatch = lower.match(/\b(\d{1,2})\s*\.?\s*(januar|februar|mars|april|mai|juni|juli|august|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|aug|sep|okt|nov|des)/);
+  // Finn dag + måned (tall)
+  const dayNumMatch = lower.match(/\b(\d{1,2})\s*\.?\s*(januar|februar|mars|april|mai|juni|juli|august|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|aug|sep|okt|nov|des)\b/);
   if (dayNumMatch) {
     day = parseInt(dayNumMatch[1]);
     month = MONTHS[dayNumMatch[2]];
   }
 
-  // Prøv ord-dag + måned: "trettende juni"
+  // Finn dag + måned (ord)
   if (!day) {
     for (const [word, num] of Object.entries(DAY_WORDS)) {
       const re = new RegExp('\\b' + word + '\\s+(januar|februar|mars|april|mai|juni|juli|august|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|aug|sep|okt|nov|des)\\b');
@@ -146,71 +158,50 @@ function parseNorwegianText(text) {
     }
   }
 
-  // ── Finn år ──
+  // Finn år
   const yearMatch = lower.match(/\b(202[4-9]|203\d)\b/);
   if (yearMatch) year = parseInt(yearMatch[1]);
   if (!year) {
     year = today.getFullYear();
-    // Hvis måneden allerede er passert i år, bruk neste år
     if (month && month < today.getMonth() + 1) year++;
     if (month && month === today.getMonth() + 1 && day && day < today.getDate()) year++;
   }
 
-  // ── Finn tid ──
-  // "kl 12", "kl. 12", "klokka 12", "klokken 12:30", "12:00"
+  // Finn tid (tall)
   const timeNumMatch = lower.match(/(?:kl\.?\s*|klokk[ae]?\s*)(\d{1,2})(?::(\d{2}))?/);
   if (timeNumMatch) {
     hour = parseInt(timeNumMatch[1]);
     minute = timeNumMatch[2] ? parseInt(timeNumMatch[2]) : 0;
   }
 
-  // Prøv "klokka tolv", "klokken fem"
+  // Finn tid (ord)
   if (hour === null) {
-    const timeWordMatch = lower.match(/(?:kl\.?\s*|klokk[ae]?\s*)(null|ett|to|tre|fire|fem|seks|sju|syv|åtte|ni|ti|elleve|tolv|tretten|fjorten|femten|seksten|sytten|atten|nitten|tjue|tjueen|tjueto|tjuetre)/);
+    const timeWordMatch = lower.match(/(?:kl\.?\s*|klokk[ae]?\s*)(ett|to|tre|fire|fem|seks|sju|syv|åtte|ni|ti|elleve|tolv|tretten|fjorten|femten|seksten|sytten|atten|nitten|tjue|tjueen|tjueto|tjuetre)\b/);
     if (timeWordMatch && TIME_WORDS[timeWordMatch[1]] !== undefined) {
       hour = TIME_WORDS[timeWordMatch[1]];
     }
   }
 
-  // ── Finn tittel ──
-  // Fjern dato og klokkeslett fra teksten, resten er tittelen
+  // Bygg tittel
   let titleText = text;
-
-  // Fjern dato-delen
   titleText = titleText.replace(/\b\d{1,2}\s*\.?\s*(januar|februar|mars|april|mai|juni|juli|august|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|aug|sep|okt|nov|des)\b/gi, '');
   for (const word of Object.keys(DAY_WORDS)) {
     const re = new RegExp('\\b' + word + '\\s+(januar|februar|mars|april|mai|juni|juli|august|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|aug|sep|okt|nov|des)\\b', 'gi');
     titleText = titleText.replace(re, '');
   }
-
-  // Fjern klokkeslett-delen
   titleText = titleText.replace(/(?:kl\.?\s*|klokk[ae]?\s*)\d{1,2}(?::\d{2})?/gi, '');
-  titleText = titleText.replace(/(?:kl\.?\s*|klokk[ae]?\s*)(null|ett|to|tre|fire|fem|seks|sju|syv|åtte|ni|ti|elleve|tolv|tretten|fjorten|femten|seksten|sytten|atten|nitten|tjue|tjueen|tjueto|tjuetre)/gi, '');
-
-  // Fjern årstall
+  titleText = titleText.replace(/(?:kl\.?\s*|klokk[ae]?\s*)(ett|to|tre|fire|fem|seks|sju|syv|åtte|ni|ti|elleve|tolv|tretten|fjorten|femten|seksten|sytten|atten|nitten|tjue|tjueen|tjueto|tjuetre)\b/gi, '');
   titleText = titleText.replace(/\b(202[4-9]|203\d)\b/g, '');
+  titleText = titleText.replace(/\s+/g, ' ').trim().replace(/^[,.\s]+|[,.\s]+$/g, '').trim();
+  const title = titleText ? titleText.charAt(0).toUpperCase() + titleText.slice(1) : text;
 
-  // Rydd opp
-  titleText = titleText.replace(/\s+/g, ' ').trim();
-  titleText = titleText.replace(/^[,.\s]+|[,.\s]+$/g, '').trim();
-
-  // Stor forbokstav
-  if (titleText) {
-    title = titleText.charAt(0).toUpperCase() + titleText.slice(1);
-  }
-
-  // ── Bygg resultat ──
   let dateStr = null;
   if (day && month && year) {
     dateStr = year + '-' + String(month).padStart(2,'0') + '-' + String(day).padStart(2,'0');
   }
+  const timeStr = hour !== null ? String(hour).padStart(2,'0') + ':' + String(minute).padStart(2,'0') : null;
 
-  let timeStr = null;
-  if (hour !== null) {
-    timeStr = String(hour).padStart(2,'0') + ':' + String(minute).padStart(2,'0');
-  }
-
-  return { date: dateStr, time: timeStr, title: title || text };
+  return { date: dateStr, time: timeStr, title };
 }
 
 // ─── VOICE INPUT ──────────────────────────────────────────────────────────────
@@ -219,7 +210,6 @@ function openVoiceModal() {
   selectedVoiceWho = null;
   document.getElementById('voice-input').value = '';
   document.getElementById('voice-status').classList.add('hidden');
-  document.getElementById('voice-status').textContent = '';
   ['mom','dad','both'].forEach(w => {
     document.getElementById('voice-who-' + w).className = 'who-btn';
   });
@@ -239,8 +229,7 @@ function handleVoiceOverlayClick(e) {
 function selectVoiceWho(who) {
   selectedVoiceWho = who;
   ['mom','dad','both'].forEach(w => {
-    const btn = document.getElementById('voice-who-' + w);
-    btn.className = 'who-btn' + (w === who ? ' selected-' + w : '');
+    document.getElementById('voice-who-' + w).className = 'who-btn' + (w === who ? ' selected-' + w : '');
   });
 }
 
@@ -249,21 +238,14 @@ function processVoiceInput() {
   if (!input) { showToast('Skriv eller dikter en hendelse først 🎤'); return; }
   if (!selectedVoiceWho) { showToast('Velg hvem hendelsen gjelder 👇'); return; }
 
-  const statusEl = document.getElementById('voice-status');
-  statusEl.textContent = '✨ Tolker hendelsen...';
-  statusEl.classList.remove('hidden');
-
   const parsed = parseNorwegianText(input);
-
-  const today = new Date();
-  const todayStr = toDateStr(today.getFullYear(), today.getMonth(), today.getDate());
+  const todayDateStr = toDateStr(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
 
   closeVoiceModal();
-
   setTimeout(() => {
-    openModal(null, parsed.date || todayStr);
+    openModal(null, parsed.date || todayDateStr);
     document.getElementById('event-title').value = parsed.title || '';
-    document.getElementById('event-date').value  = parsed.date  || todayStr;
+    document.getElementById('event-date').value  = parsed.date  || todayDateStr;
     document.getElementById('event-time').value  = parsed.time  || '';
     document.getElementById('event-note').value  = '';
     selectWho(selectedVoiceWho);
@@ -319,24 +301,20 @@ function renderMonth() {
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = toDateStr(year, month, d);
     const dayEvents = events.filter(e => e.date === dateStr);
-
     const cell = document.createElement('div');
     cell.className = 'cal-day';
     if (d === today.getDate() && month === today.getMonth() && year === today.getFullYear()) {
       cell.classList.add('today');
     }
-
     const num = document.createElement('span');
     num.className = 'cal-day-num';
     num.textContent = d;
     cell.appendChild(num);
-
     dayEvents.forEach(ev => {
       const dot = document.createElement('span');
       dot.className = 'cal-dot dot-' + ev.who;
       cell.appendChild(dot);
     });
-
     cell.onclick = () => openDaySheet(dateStr, dayEvents);
     grid.appendChild(cell);
   }
@@ -484,8 +462,7 @@ function handleOverlayClick(e) {
 function selectWho(who) {
   selectedWho = who;
   ['mom','dad','both'].forEach(w => {
-    const btn = document.getElementById('who-' + w);
-    btn.className = 'who-btn' + (w === who ? ' selected-' + w : '');
+    document.getElementById('who-' + w).className = 'who-btn' + (w === who ? ' selected-' + w : '');
   });
 }
 
@@ -498,7 +475,7 @@ async function saveEvent() {
   if (!date)  { showToast('Velg en dato 📅'); return; }
   if (!selectedWho) { showToast('Velg hvem hendelsen gjelder 👇'); return; }
   const event = {
-    id:    editingId || 'local-' + Date.now(),
+    id: editingId || 'local-' + Date.now(),
     title, date,
     time:  time || null,
     who:   selectedWho,
