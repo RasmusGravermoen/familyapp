@@ -1,0 +1,6 @@
+[build]
+  publish = "."
+
+[[scheduled-functions]]
+  name = "ping"
+  schedule = "0 8 * * *"
