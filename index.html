@@ -10,17 +10,21 @@
   <title>Familiekalender</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 
   <header class="app-header">
     <h1 class="app-title">📅 Familiekalender</h1>
     <p class="app-subtitle" id="current-month-label"></p>
+    <button id="logout-btn" class="logout-btn hidden" onclick="doLogout()">Logg ut</button>
   </header>
 
   <div class="view-toggle">
     <button class="toggle-btn active" id="btn-month" onclick="switchView('month')">Måned</button>
     <button class="toggle-btn" id="btn-list" onclick="switchView('list')">Liste</button>
+    <button class="toggle-btn" id="btn-map" onclick="switchView('map')">Kart</button>
   </div>
 
   <section id="view-month" class="view active">
@@ -42,6 +46,13 @@
   <section id="view-list" class="view">
     <h2 class="list-heading">Kommende hendelser</h2>
     <div id="event-list"></div>
+  </section>
+
+  <section id="view-map" class="view">
+    <button id="share-toggle" class="share-toggle" onclick="toggleShareLocation()">📍 Del min posisjon med familien</button>
+    <div id="people-chips" class="people-chips"></div>
+    <div id="map-container" class="map-container"></div>
+    <p class="map-hint">Trykk på en person for å se hvor de sist var.</p>
   </section>
 
   <div class="fab-container">
@@ -111,6 +122,34 @@
         <button class="btn-save" onclick="saveEvent()">💾 Lagre</button>
         <button class="btn-delete hidden" id="btn-delete" onclick="deleteEvent()">🗑 Slett</button>
         <button class="btn-cancel" onclick="closeModal()">Avbryt</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOGIN SCREEN -->
+  <div id="login-screen" class="login-screen hidden">
+    <div class="login-card">
+      <h1 class="login-title">📅 Familiekalender</h1>
+      <p class="login-sub">Logg inn for å se familiens kalender og kart.</p>
+      <label class="field-label" for="login-email">E-post</label>
+      <input id="login-email" class="field-input" type="email" autocomplete="username" inputmode="email" autocapitalize="off" />
+      <label class="field-label" for="login-password">Passord</label>
+      <input id="login-password" class="field-input" type="password" autocomplete="current-password"
+        onkeydown="if(event.key==='Enter') doLogin()" />
+      <div id="login-error" class="login-error"></div>
+      <button id="login-btn" class="btn-save" onclick="doLogin()">Logg inn</button>
+    </div>
+  </div>
+
+  <!-- NAME MODAL (første innlogging) -->
+  <div id="name-modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <h2 class="modal-title">Hva heter du?</h2>
+      <p class="voice-example">Dette navnet vises til familien på kartet — f.eks. «Mamma».</p>
+      <input id="name-input" class="field-input" type="text" autocomplete="off"
+        onkeydown="if(event.key==='Enter') saveMyName()" />
+      <div class="modal-actions">
+        <button class="btn-save" onclick="saveMyName()">Lagre</button>
       </div>
     </div>
   </div>
