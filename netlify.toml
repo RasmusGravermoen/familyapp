@@ -1,6 +1,7 @@
 [build]
   publish = "."
 
-[[scheduled-functions]]
-  name = "ping"
+# Planlagt funksjon: pinger Supabase hver dag kl. 08:00 UTC slik at
+# gratis-prosjektet ikke pauses etter 7 dager uten aktivitet.
+[functions."ping"]
   schedule = "0 8 * * *"
