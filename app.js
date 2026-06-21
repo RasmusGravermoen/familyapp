@@ -9,34 +9,79 @@ let editingId        = null;
 let selectedWho      = null;
 let selectedVoiceWho = null;
 
+// Innlogging / kart
+let appStarted       = false;
+let myUserId         = null;
+let profiles         = [];
+let locations        = [];
+let selectedPersonId = null;
+let map              = null;
+let mapMarkers       = {};
+const PERSON_COLORS  = ['#c97b84', '#6b8fb5', '#8a7fc0', '#4a7c6f', '#c79a5b'];
+
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   updateMonthLabel();
-  showLoading(true);
   registerServiceWorker();
   await waitForSupabase();
+
+  if (window.SUPABASE_READY && window.supabaseClient) {
+    const { data: { session } } = await window.supabaseClient.auth.getSession();
+    if (session) startApp(); else showLogin();
+    // Reager på inn-/utlogging
+    window.supabaseClient.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') { appStarted = false; showLogin(); }
+      else if (session && !appStarted) { startApp(); }
+    });
+  } else {
+    // Demo-modus uten Supabase (kun lokal lagring) — kjør appen som før
+    startApp();
+  }
+});
+
+async function startApp() {
+  if (appStarted) return;
+  appStarted = true;
+  hideLogin();
+  document.getElementById('logout-btn').classList.remove('hidden');
+  showLoading(true);
+  await ensureMyProfile();
+  await loadProfiles();
   await loadEvents();
+  await loadLocations();
   showLoading(false);
   renderMonth();
   renderList();
-
-  // 1) Realtime: dytter endringer ut til alle umiddelbart (under 1 sek)
+  renderPeopleChips();
+  renderShareToggle();
   subscribeRealtime();
 
-  // 2) Hent på nytt med en gang appen åpnes/får fokus (viktigst på telefon)
+  // Hent på nytt når appen åpnes/får fokus (viktigst på telefon)
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') refreshNow();
+    if (document.visibilityState === 'visible') onAppActive();
   });
-  window.addEventListener('focus', refreshNow);
+  window.addEventListener('focus', onAppActive);
 
-  // 3) Sikkerhetsnett: hent på nytt hvert 30. sek i tilfelle realtime mister tilkobling
-  setInterval(refreshNow, 30000);
-});
+  // Sikkerhetsnett: hent data på nytt hvert 30. sek hvis realtime mister tilkobling
+  setInterval(refreshData, 30000);
 
-async function refreshNow() {
+  // Oppdater min egen posisjon (hvis jeg har valgt å dele)
+  updateMyLocation();
+}
+
+// Kalles når appen blir aktiv: frisk data + oppdater egen posisjon
+function onAppActive() {
+  refreshData();
+  updateMyLocation();
+}
+
+async function refreshData() {
   await loadEvents();
+  await loadLocations();
   renderMonth();
   renderList();
+  renderPeopleChips();
+  if (currentView === 'map') renderMapMarkers();
 }
 
 function showLoading(on) {
@@ -84,10 +129,19 @@ function registerServiceWorker() {
 function subscribeRealtime() {
   if (!(window.SUPABASE_READY && window.supabaseClient)) return;
   window.supabaseClient
-    .channel('events-changes')
+    .channel('family-changes')
     .on('postgres_changes',
         { event: '*', schema: 'public', table: 'events' },
         (payload) => applyRealtimeChange(payload))
+    .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'locations' },
+        () => loadLocations().then(() => {
+          renderPeopleChips();
+          if (currentView === 'map') renderMapMarkers();
+        }))
+    .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'profiles' },
+        () => loadProfiles().then(() => renderPeopleChips()))
     .subscribe();
 }
 
@@ -102,6 +156,233 @@ function applyRealtimeChange(payload) {
   }
   renderMonth();
   renderList();
+}
+
+// ─── INNLOGGING ───────────────────────────────────────────────────────────────
+
+function showLogin() {
+  document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('logout-btn').classList.add('hidden');
+}
+
+function hideLogin() {
+  document.getElementById('login-screen').classList.add('hidden');
+}
+
+async function doLogin() {
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl    = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!email || !password) { errEl.textContent = 'Fyll inn e-post og passord.'; return; }
+  const btn = document.getElementById('login-btn');
+  btn.disabled = true; btn.textContent = 'Logger inn...';
+  const { error } = await window.supabaseClient.auth.signInWithPassword({ email, password });
+  btn.disabled = false; btn.textContent = 'Logg inn';
+  if (error) { errEl.textContent = 'Feil e-post eller passord. Prøv igjen.'; return; }
+  document.getElementById('login-password').value = '';
+  // startApp() kjøres automatisk via onAuthStateChange
+}
+
+async function doLogout() {
+  if (!confirm('Logg ut av Familiekalenderen?')) return;
+  await window.supabaseClient.auth.signOut();
+  location.reload();
+}
+
+// ─── PROFILER (navn på kartet) ────────────────────────────────────────────────
+
+async function ensureMyProfile() {
+  if (!(window.SUPABASE_READY && window.supabaseClient)) return;
+  const { data: { user } } = await window.supabaseClient.auth.getUser();
+  if (!user) return;
+  myUserId = user.id;
+  const { data } = await window.supabaseClient
+    .from('profiles').select('*').eq('id', user.id).maybeSingle();
+  if (!data || !data.name) showNameModal();
+}
+
+async function loadProfiles() {
+  if (!(window.SUPABASE_READY && window.supabaseClient)) return;
+  const { data, error } = await window.supabaseClient
+    .from('profiles').select('*').order('name');
+  if (!error && data) profiles = data;
+}
+
+function showNameModal() {
+  document.getElementById('name-input').value = '';
+  document.getElementById('name-modal-overlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('name-input').focus(), 300);
+}
+
+async function saveMyName() {
+  const name = document.getElementById('name-input').value.trim();
+  if (!name) { showToast('Skriv inn navnet ditt'); return; }
+  if (!myUserId) return;
+  const { error } = await window.supabaseClient
+    .from('profiles').upsert({ id: myUserId, name, updated_at: new Date().toISOString() });
+  if (error) { showToast('⚠️ Kunne ikke lagre navnet'); return; }
+  document.getElementById('name-modal-overlay').classList.add('hidden');
+  await loadProfiles();
+  renderPeopleChips();
+  showToast('✅ Hei, ' + name + '!');
+}
+
+// ─── POSISJON / KART ──────────────────────────────────────────────────────────
+
+function isSharing() {
+  return localStorage.getItem('share_location') === 'on';
+}
+
+function toggleShareLocation() {
+  const turnOn = !isSharing();
+  localStorage.setItem('share_location', turnOn ? 'on' : 'off');
+  renderShareToggle();
+  if (turnOn) {
+    showToast('📍 Henter posisjonen din...');
+    updateMyLocation();
+  } else {
+    showToast('Posisjonsdeling slått av');
+  }
+}
+
+function renderShareToggle() {
+  const btn = document.getElementById('share-toggle');
+  if (!btn) return;
+  if (isSharing()) {
+    btn.textContent = '📍 Du deler posisjonen din — trykk for å slå av';
+    btn.classList.add('on');
+  } else {
+    btn.textContent = '📍 Del min posisjon med familien';
+    btn.classList.remove('on');
+  }
+}
+
+function updateMyLocation() {
+  if (!isSharing() || !navigator.geolocation || !myUserId) return;
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    const { error } = await window.supabaseClient.from('locations').upsert({
+      user_id: myUserId,
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      updated_at: new Date().toISOString()
+    });
+    if (!error) {
+      await loadLocations();
+      renderPeopleChips();
+      if (currentView === 'map') renderMapMarkers();
+    }
+  }, (err) => {
+    console.warn('Posisjon utilgjengelig:', err.message);
+    showToast('Fikk ikke tak i posisjonen din');
+  }, { enableHighAccuracy: false, timeout: 12000, maximumAge: 30000 });
+}
+
+async function loadLocations() {
+  if (!(window.SUPABASE_READY && window.supabaseClient)) return;
+  const { data, error } = await window.supabaseClient.from('locations').select('*');
+  if (!error && data) locations = data;
+}
+
+function personColor(userId) {
+  const idx = profiles.findIndex(p => p.id === userId);
+  return PERSON_COLORS[(idx >= 0 ? idx : 0) % PERSON_COLORS.length];
+}
+
+function renderPeopleChips() {
+  const wrap = document.getElementById('people-chips');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  if (profiles.length === 0) {
+    wrap.innerHTML = '<p class="map-hint">Ingen i familien har logget inn enda.</p>';
+    return;
+  }
+  profiles.forEach(p => {
+    const loc = locations.find(l => l.user_id === p.id);
+    const btn = document.createElement('button');
+    btn.className = 'person-chip' + (selectedPersonId === p.id ? ' active' : '');
+    btn.onclick = () => focusPerson(p.id);
+    const sub = loc ? lastSeen(loc.updated_at) : 'ikke delt enda';
+    btn.innerHTML =
+      '<span class="person-chip-top">' +
+        '<span class="person-chip-dot" style="background:' + personColor(p.id) + '"></span>' +
+        '<span class="person-chip-name">' + escapeHtml(p.name) + '</span>' +
+      '</span>' +
+      '<span class="person-chip-sub">' + sub + '</span>';
+    wrap.appendChild(btn);
+  });
+}
+
+function ensureMap() {
+  if (map || typeof L === 'undefined') return;
+  map = L.map('map-container').setView([60.5, 9.0], 5); // standard: Norge
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap-bidragsytere',
+    maxZoom: 19
+  }).addTo(map);
+  renderMapMarkers();
+}
+
+function renderMapMarkers() {
+  if (!map) return;
+  Object.values(mapMarkers).forEach(m => map.removeLayer(m));
+  mapMarkers = {};
+  const pts = [];
+  locations.forEach(loc => {
+    const prof    = profiles.find(p => p.id === loc.user_id);
+    const name    = prof ? prof.name : 'Ukjent';
+    const color   = personColor(loc.user_id);
+    const initial = name.charAt(0).toUpperCase();
+    const icon = L.divIcon({
+      className: 'person-pin',
+      html: '<div class="pin-dot" style="background:' + color + '">' + escapeHtml(initial) + '</div>',
+      iconSize:    [34, 34],
+      iconAnchor:  [17, 17],
+      popupAnchor: [0, -18]
+    });
+    const marker = L.marker([loc.lat, loc.lng], { icon }).addTo(map);
+    marker.bindPopup('<b>' + escapeHtml(name) + '</b><br>' + lastSeen(loc.updated_at));
+    mapMarkers[loc.user_id] = marker;
+    pts.push([loc.lat, loc.lng]);
+  });
+  if (pts.length && !selectedPersonId) {
+    map.fitBounds(pts, { padding: [50, 50], maxZoom: 14 });
+  }
+}
+
+function focusPerson(userId) {
+  selectedPersonId = userId;
+  renderPeopleChips();
+  const loc = locations.find(l => l.user_id === userId);
+  if (!loc) {
+    const prof = profiles.find(p => p.id === userId);
+    showToast((prof ? prof.name : 'Personen') + ' har ikke delt posisjon enda');
+    return;
+  }
+  ensureMap();
+  if (map) {
+    map.invalidateSize();
+    map.setView([loc.lat, loc.lng], 15);
+    const marker = mapMarkers[userId];
+    if (marker) marker.openPopup();
+  }
+}
+
+function lastSeen(iso) {
+  if (!iso) return 'sist sett: ukjent';
+  const diff = Date.now() - new Date(iso).getTime();
+  const min  = Math.round(diff / 60000);
+  if (min < 1)  return 'her akkurat nå';
+  if (min < 60) return 'sist sett for ' + min + ' min siden';
+  const hrs = Math.round(min / 60);
+  if (hrs < 24) return 'sist sett for ' + hrs + (hrs === 1 ? ' time' : ' timer') + ' siden';
+  const days = Math.round(hrs / 24);
+  return 'sist sett for ' + days + (days === 1 ? ' dag' : ' dager') + ' siden';
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 // ─── DATA LAYER ───────────────────────────────────────────────────────────────
@@ -299,10 +580,18 @@ function processVoiceInput() {
 
 function switchView(view) {
   currentView = view;
-  document.getElementById('view-month').classList.toggle('active', view === 'month');
-  document.getElementById('view-list').classList.toggle('active', view === 'list');
-  document.getElementById('btn-month').classList.toggle('active', view === 'month');
-  document.getElementById('btn-list').classList.toggle('active', view === 'list');
+  ['month', 'list', 'map'].forEach(v => {
+    document.getElementById('view-' + v).classList.toggle('active', view === v);
+    document.getElementById('btn-' + v).classList.toggle('active', view === v);
+  });
+  // «Legg til»-knappene hører til kalenderen, ikke kartet
+  document.querySelector('.fab-container').classList.toggle('hidden', view === 'map');
+  if (view === 'map') {
+    setTimeout(() => {
+      ensureMap();
+      if (map) { map.invalidateSize(); renderMapMarkers(); }
+    }, 60);
+  }
 }
 
 function updateMonthLabel() {
