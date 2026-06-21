@@ -3,7 +3,7 @@
    Cacher kun app-filer, ALDRI data fra Supabase
    ============================================= */
 
-const CACHE = 'familycal-v11';
+const CACHE = 'familycal-v12';
 const ASSETS = [
   '/',
   '/index.html',
