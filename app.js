@@ -20,13 +20,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderMonth();
   renderList();
 
-  // Auto-oppdater hvert minutt
-  setInterval(async () => {
-    await loadEvents();
-    renderMonth();
-    renderList();
-  }, 60000);
+  // 1) Realtime: dytter endringer ut til alle umiddelbart (under 1 sek)
+  subscribeRealtime();
+
+  // 2) Hent på nytt med en gang appen åpnes/får fokus (viktigst på telefon)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshNow();
+  });
+  window.addEventListener('focus', refreshNow);
+
+  // 3) Sikkerhetsnett: hent på nytt hvert 30. sek i tilfelle realtime mister tilkobling
+  setInterval(refreshNow, 30000);
 });
+
+async function refreshNow() {
+  await loadEvents();
+  renderMonth();
+  renderList();
+}
 
 function showLoading(on) {
   let el = document.getElementById('loading-overlay');
@@ -68,6 +79,31 @@ function registerServiceWorker() {
   }
 }
 
+// ─── REALTIME ───────────────────────────────────────────────────────────────
+// Lytter på endringer i events-tabellen og oppdaterer kalenderen umiddelbart.
+function subscribeRealtime() {
+  if (!(window.SUPABASE_READY && window.supabaseClient)) return;
+  window.supabaseClient
+    .channel('events-changes')
+    .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'events' },
+        (payload) => applyRealtimeChange(payload))
+    .subscribe();
+}
+
+function applyRealtimeChange(payload) {
+  const row = payload.new && payload.new.id ? payload.new : payload.old;
+  if (!row) return;
+  if (payload.eventType === 'DELETE') {
+    events = events.filter(e => e.id !== row.id);
+  } else {
+    const idx = events.findIndex(e => e.id === row.id);
+    if (idx >= 0) events[idx] = row; else events.push(row);
+  }
+  renderMonth();
+  renderList();
+}
+
 // ─── DATA LAYER ───────────────────────────────────────────────────────────────
 
 async function loadEvents() {
@@ -87,16 +123,20 @@ async function loadEvents() {
 }
 
 async function saveToStorage(event) {
+  // Supabase aktiv = databasen er fasit. Feiler kallet, kaster vi en feil
+  // slik at brukeren får beskjed i stedet for en falsk "lagret".
   if (window.SUPABASE_READY && window.supabaseClient) {
+    let result;
     if (event.id && typeof event.id === 'string' && event.id.startsWith('local-')) {
       const { id, ...rest } = event;
-      const { data, error } = await window.supabaseClient.from('events').insert(rest).select().single();
-      if (!error) return data;
+      result = await window.supabaseClient.from('events').insert(rest).select().single();
+    } else {
+      result = await window.supabaseClient.from('events').upsert(event).select().single();
     }
-    const { data, error } = await window.supabaseClient
-      .from('events').upsert(event).select().single();
-    if (!error) return data;
+    if (result.error) throw result.error;
+    return result.data;
   }
+  // Demo-/lokalmodus (ingen Supabase konfigurert): lagre kun i nettleseren
   const stored = JSON.parse(localStorage.getItem('fam_events') || '[]');
   const idx = stored.findIndex(e => e.id === event.id);
   if (idx >= 0) stored[idx] = event; else stored.push(event);
@@ -106,7 +146,9 @@ async function saveToStorage(event) {
 
 async function deleteFromStorage(id) {
   if (window.SUPABASE_READY && window.supabaseClient) {
-    await window.supabaseClient.from('events').delete().eq('id', id);
+    const { error } = await window.supabaseClient.from('events').delete().eq('id', id);
+    if (error) throw error;
+    return;
   }
   const stored = JSON.parse(localStorage.getItem('fam_events') || '[]');
   localStorage.setItem('fam_events', JSON.stringify(stored.filter(e => e.id !== id)));
@@ -481,22 +523,35 @@ async function saveEvent() {
     who:   selectedWho,
     note:  note || null,
   };
-  const saved = await saveToStorage(event);
-  if (saved) {
-    const idx = events.findIndex(e => e.id === event.id);
-    if (idx >= 0) events[idx] = saved; else events.push(saved);
+  const wasEditing = !!editingId;
+  let saved;
+  try {
+    saved = await saveToStorage(event);
+  } catch (e) {
+    console.error('Lagring feilet:', e);
+    showToast('⚠️ Ikke lagret – sjekk internett og prøv igjen');
+    return; // hold modalen åpen så de kan prøve på nytt
   }
+  const idx = events.findIndex(e => e.id === event.id);
+  if (idx >= 0) events[idx] = saved; else events.push(saved);
   closeModal();
   renderMonth();
   renderList();
-  showToast(editingId ? '✅ Hendelse oppdatert!' : '✅ Hendelse lagt til!');
+  showToast(wasEditing ? '✅ Hendelse oppdatert!' : '✅ Hendelse lagt til!');
 }
 
 async function deleteEvent() {
   if (!editingId) return;
   if (!confirm('Er du sikker på at du vil slette denne hendelsen?')) return;
-  await deleteFromStorage(editingId);
-  events = events.filter(e => e.id !== editingId);
+  const id = editingId;
+  try {
+    await deleteFromStorage(id);
+  } catch (e) {
+    console.error('Sletting feilet:', e);
+    showToast('⚠️ Ikke slettet – sjekk internett og prøv igjen');
+    return;
+  }
+  events = events.filter(e => e.id !== id);
   closeModal();
   renderMonth();
   renderList();
