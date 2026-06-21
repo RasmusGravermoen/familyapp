@@ -3,7 +3,7 @@
    Cacher kun app-filer, ALDRI data fra Supabase
    ============================================= */
 
-const CACHE = 'familycal-v12';
+const CACHE = 'familycal-v13';
 const ASSETS = [
   '/',
   '/index.html',
@@ -33,10 +33,12 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
-  // Aldri cache Supabase-kall — alltid hent fra nett
+  // Aldri cache Supabase-kall, Leaflet eller kartfliser — alltid hent fra nett
   if (url.hostname.includes('supabase.co') ||
       url.hostname.includes('supabase.com') ||
-      url.hostname.includes('jsdelivr.net')) {
+      url.hostname.includes('jsdelivr.net') ||
+      url.hostname.includes('unpkg.com') ||
+      url.hostname.includes('tile.openstreetmap.org')) {
     e.respondWith(fetch(e.request));
     return;
   }
